@@ -1,0 +1,1565 @@
+﻿{
+  "cells": [
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "eedb84750f0eeaa9f62e837fbf87dcec4b5d653b"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\nlibrary(dslabs)\nlibrary(dplyr)\ndata(heights)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1f1cf18c1c786f06850f29adae88f7beb8bce7bb"
+      },
+      "cell_type": "markdown",
+      "source": "We start by defining the outcome and predictors. In this case, we have only one predictor:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "bb4f984e982389fce2fa9e24bde989712c4acb91"
+      },
+      "cell_type": "code",
+      "source": "y <- heights$sex\nx <- heights$height",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "247cb40bcb6b2c377bb9163c18ba2af83b5fa191"
+      },
+      "cell_type": "markdown",
+      "source": "This is clearly a categorical outcome since  Y can be Male or Female and we only have one predictor: height. We know that we will not be able to predict  Y very accurately based on  X because male and female average heights are not that different relative to within group variability. But can we do better than guessing? To answer this question, we need a quantitative definition of better.\n\n65.1 Training and test sets\nUltimately, a machine learning algorithm is evaluated on how it performs in the real world with completely new datasets. However, when developing an algorithm, we usually have a dataset for which we know the outcomes, as we do with the heights: we know the sex of every student in our dataset. Therefore, to mimic the ultimate evaluation process, we typically split the data into two and act as if we don’t know the outcome for one of these. We stop pretending we don’t know the outcome to evaluate the algorithm, but only after we are done constructing it. We refer to the group for which we know the outcome and use it to develop the algorithm as the training set, and the group for which we pretend we don’t know the outcome as the test set.\n\nA standard way of generating the training and test sets is by randomly splitting the data. The caret package includes the function createDataPartition that helps us generates indexes for randomly splitting the data into training and test sets:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e527b885aa349737521b1034aacf75f141d33296"
+      },
+      "cell_type": "code",
+      "source": "set.seed(2)\ntest_index <- createDataPartition(y, times = 1, p = 0.5, list = FALSE)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "0bb02e80cdcc5027758e151c9f142b2fcc8ebb31"
+      },
+      "cell_type": "markdown",
+      "source": "The argument times is used to define how many random samples of indexes to return, the argument p is used to define what proportion of the data is represented by the index, and the argument list is used to decide if we want the indexes returned as a list or not. We can use the result of the function call to define the training and test sets like this:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "115290d96ffa4a95e1d70776caf36be9a7555364"
+      },
+      "cell_type": "code",
+      "source": "test_set <- heights[test_index, ]\ntrain_set <- heights[-test_index, ]",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "01d0aa178e688a3da0cbb7cf139a2643eff2584e"
+      },
+      "cell_type": "markdown",
+      "source": "We will now develop an algorithm using only the training set. Once we are done developing the algorithm, we will freeze it and evaluate it using the test set. The simplest way to evaluate the algorithm when the outcomes are categorical is by simply reporting the proportion of cases that were correctly predicted in the test set. This metric is usually referred to as overall accuracy.\n\n**65.2 Overall accuracy**\n\nTo demonstrate the use of overall accuracy, we will build two competing algorithms and compare them.\nLet’s start by developing the simplest possible machine algorithm: guessing the outcome."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "a497288b6ab09891f2b3e1e9c80ed6ab27f62939"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- sample(c(\"Male\", \"Female\"), length(test_index), replace = TRUE)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "d7673a892c699bd7570a0ccf57921725e6dc5a43"
+      },
+      "cell_type": "markdown",
+      "source": "Note that we are completely ignoring the predictor and simply guessing the sex.\n\nIn machine learning applications, it is useful to use factors to represent the categorical outcomes because R functions developed for machine learning, such as those in the caret package, require or recommend that categorical outcomes be coded as factors. So convert y_hat to factors using the factor function:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e1970ed462dd0eb6e804ced3a81378ee718bb8af"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- sample(c(\"Male\", \"Female\"), length(test_index), replace = TRUE) %>% \n  factor(levels = levels(test_set$sex))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "75e1d59901f410af356bba2715c67b9cd878fec5"
+      },
+      "cell_type": "markdown",
+      "source": "The overall accuracy is simply defined as the overall proportion that is predicted correctly:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "20b0ebf74c1aea9ce622fdbfcf8d61df5eec3faf"
+      },
+      "cell_type": "code",
+      "source": "mean(y_hat == test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "1d51d455129defbbf8af4cbe40b1ababbe47c148"
+      },
+      "cell_type": "markdown",
+      "source": "Not surprisingly, our accuracy is about 50%. We are guessing!\n\nCan we do better? Exploratory data analysis suggests we can because, on average, males are slightly taller than females:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "59dd483d046c46e2818e8944732ccd5ec12f8905"
+      },
+      "cell_type": "code",
+      "source": "heights %>% group_by(sex) %>% summarize(mean(height), sd(height))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "b896858b0ca0133b6b489f0a9408779b961fee71"
+      },
+      "cell_type": "markdown",
+      "source": "But how do we make use of this insight? Let’s try another simple approach: predict Male if height is within two standard deviations from the average male:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e1c7496454bc92840f3237bf653903be74fbfd11"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- ifelse(x > 62, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "d7ceb46d1b71d68a896526ceb71ab52c49376d02"
+      },
+      "cell_type": "markdown",
+      "source": "The accuracy goes up from 0.50 to about 0.80:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "3a018fe75011f5d4898d785db9ad68753abc23f1"
+      },
+      "cell_type": "code",
+      "source": "mean(y == y_hat)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "68c7864b26a44b6b24c672bf480daafc1394925e"
+      },
+      "cell_type": "markdown",
+      "source": "But can we do even better? In the example above, we used a cutoff of 62, but we can examine the accuracy obtained for other cutoffs and then pick the value that provides the best results. But remember, it is important that we optimize the cutoff using only the training set: the test set is only for evaluation. Although for this simplistic example it is not much of a problem, later we will learn that evaluating an algorithm on the training set can lead to overfitting, which often results in dangerously over-optimistic assessments.\n\nHere we examine the accuracy of 10 different cutoffs and pick the one yielding the best result:"
+    },
+    {
+      "metadata": {
+        "_uuid": "7e0dca909febc5863517f83bb67337c85e07b6f7"
+      },
+      "cell_type": "markdown",
+      "source": "I just played around with function sapply and map_dbl (map double) and they both give the same outcome\nso you can prob use either one of them. \n\nThese are some of the diff in apply functions \n* apply ---> you need to specific margin or which colum or row to apply\n* lapply ---> stand for list and give outcome in list but no need to specify margin\n* sapply ---> prob  the best of the outcome no margin and come out with vector instead of list"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "da929b8b0d29a6d4173ed734dd5523f6964c8015"
+      },
+      "cell_type": "code",
+      "source": "library(purrr)\ncutoff2 <- seq(61, 70)\naccuracy2 <- sapply(cutoff, function(x){\n  y_hat <- ifelse(train_set$height > x, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))\n  mean(y_hat == train_set$sex)\n})",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "8817e65d44efedfecbd96f31bb59f054166563e0"
+      },
+      "cell_type": "code",
+      "source": "library(purrr)\ncutoff <- seq(61, 70)\naccuracy <- map_dbl(cutoff, function(x){\n  y_hat <- ifelse(train_set$height > x, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))\n  mean(y_hat == train_set$sex)\n})",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "4dc62d505907807b4d7e4fa7844de370b192c03c"
+      },
+      "cell_type": "markdown",
+      "source": "**Below is some types for plotting**\n**type\tdescription**\n\n* p\tpoints\n* l\tlines\n* o\toverplotted points and lines\n* b, c\tpoints (empty if \"c\") joined by lines\n* s, S\tstair steps\n* h\thistogram-like vertical lines\n* n\tdoes not produce any points or lines\n"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "97d31f2825ffc81b588352f1841aad5575212a37"
+      },
+      "cell_type": "code",
+      "source": "plot(cutoff,accuracy,type='o')\nplot(cutoff2,accuracy2,type='o')",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "95eb127183489b70d2fe2e93c2548a87ea440250"
+      },
+      "cell_type": "markdown",
+      "source": "We see that the maximum value is:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "4e8c5499529139aeef1f195edb9ed5f58c2e94fe"
+      },
+      "cell_type": "code",
+      "source": "max(accuracy)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "e8083b942216f1f65c456a23eb5520d0b493f144"
+      },
+      "cell_type": "markdown",
+      "source": "which is much higher than 0.5. The cutoff resulting in this accuracy is:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "8a16c5500b5dc55a47c6583de50346eb75afe655"
+      },
+      "cell_type": "code",
+      "source": "best_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "25de8d6e7bf325b2a3659797cf653582ae67de38"
+      },
+      "cell_type": "markdown",
+      "source": "Now we can now test this cutoff on our test set to make sure our accuracy is not overly optimistic:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "082e28b0fdda3c22f336ae55707934a929db3453"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- ifelse(test_set$height > best_cutoff, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))\ny_hat <- factor(y_hat)\nmean(y_hat == test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "ea59121fb9a57dcc7797415e4a704fa9816ffc4c"
+      },
+      "cell_type": "markdown",
+      "source": "We see that it is a bit lower than the accuracy observed for the training set, but it is still better than guessing. And by testing on a dataset that we did not train on, we know it is not due to cherry-picking a good result.\n\n65.3 The Confusion Matrix\nThe prediction rule we developed in the previous section predicts Male if the student is taller than 64 inches. Given that the average female is about 65 inches, this prediction rule seems wrong. What happened? If a student is the height of the average female, shouldn’t we predict Female?\n\nGenerally speaking, overall accuracy can be a deceptive measure. To see this, we will start by constructing what is referred to as the confusion matrix, which basically tabulates each combination of prediction and actual value. We can do this in R using the function table:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "3a89635ace1cf197d32bc3877d12874d9db50270"
+      },
+      "cell_type": "code",
+      "source": "table(predicted = y_hat, actual = test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "5aa163d15dbff1711539b989fe75277183c26e41"
+      },
+      "cell_type": "markdown",
+      "source": "If we study this table closely, it reveals a problem. If we compute the accuracy separately for each sex, we get:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "7a9aff0518a67b4b959b2c355290ec420b4a8327"
+      },
+      "cell_type": "code",
+      "source": "test_set %>% \n  mutate(y_hat = y_hat) %>%\n  group_by(sex) %>% \n  summarize(accuracy = mean(y_hat == sex))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "c4d19b1642cd75211ad8a2026f344c854fa6c2b9"
+      },
+      "cell_type": "markdown",
+      "source": "There is an imbalance in the accuracy for males and females: too many females are predicted to be male. We are calling almost half of the females, males! How can our overall accuracy be so high then? This is because the prevalence of males in this dataset is high. These heights were collected from three data sciences courses, two of which had more males enrolled:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f224e0d465fcf4ead9047a678dd51f7a039e6b33"
+      },
+      "cell_type": "code",
+      "source": "prev <- mean(y == \"Male\")\nprev",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "bdc8a368bc0b0f136fa57e2bb3fb5b81f9b91556"
+      },
+      "cell_type": "markdown",
+      "source": "So when computing overall accuracy, the high percentage of mistakes made for females is outweighed by the gains in correct calls for men. This can actually be a big problem in machine learning. If your training data is biased in some way, you are likely to develop algorithms that are biased as well. The fact that we used a test set does not matter because it is also derived from the original, biased dataset. This is one of the reasons we look at metrics other than overall accuracy when evaluating a machine learning algorithm.\n\nThere are several metrics that we can use to evaluate an algorithm in a way that prevalence does not cloud our assessment, and these can all be derived from the confusion matrix. A general improvement to using overall accuracy is to study sensitivity and specificity separately."
+    },
+    {
+      "metadata": {
+        "_uuid": "cc1a6ddee7b3e8e2194d0bcb12764dbee72d807f"
+      },
+      "cell_type": "markdown",
+      "source": "To get a better understanding of confusion matrix, just check the attached in kaggle under spreadsheet name confusionmatrix\n\n"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9bf974ff944f55daefce0518724540b0f7c8f362"
+      },
+      "cell_type": "code",
+      "source": "confusionMatrix(data = y_hat, reference = test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "988606144672158f31f3a4637dd5d43dc0c39f72"
+      },
+      "cell_type": "markdown",
+      "source": "Check out this link which gives great info on confusion matric [great link](https://www.dataschool.io/simple-guide-to-confusion-matrix-terminology/)"
+    },
+    {
+      "metadata": {
+        "_uuid": "dd0dbff0034b24ef0f688fbaddc02af9f9ca8781"
+      },
+      "cell_type": "markdown",
+      "source": "**Chapter 67 Linear regression for prediction**\n\nLinear regression can be considered a machine learning algorithm. As we will see, it is too rigid to be useful in general, but for some challenges it works rather well. It also serves as a baseline approach: if you can’t beat it with a more complex approach, you probably want to stick to linear regression. To quickly make the connection between regression and machine learning, we will reformulate Galton’s study with heights: a continuous outcome."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1bce2f283576dc170d0ae9b7a969abf745230464"
+      },
+      "cell_type": "code",
+      "source": "library(HistData)\n\ngalton_heights <- GaltonFamilies %>%\n  filter(childNum == 1 & gender == \"male\") %>%\n  select(father, childHeight) %>%\n  rename(son = childHeight)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "7ee89ec8d59677ee4b74c3987411f89cb3079bbf"
+      },
+      "cell_type": "markdown",
+      "source": "Suppose you are tasked with building a machine learning algorithm that predicts the son’s height  Y using the father’s height  X. Let’s generate testing and training sets:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "7992aa7443d39cf5ff92690b975ef78f79aeca8a"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\ny <- galton_heights$son\ntest_index <- createDataPartition(y, times = 1, p = 0.5, list = FALSE)\n\ntrain_set <- galton_heights %>% slice(-test_index)\ntest_set <- galton_heights %>% slice(test_index)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e882f6f4646388c7967e2ec474b1666056fd9183"
+      },
+      "cell_type": "code",
+      "source": "head(train_set)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "6464014ff0c7b55b0f5cada4d446166ed5809132"
+      },
+      "cell_type": "markdown",
+      "source": "In this case, if we were just ignoring the father’s height and guessing the son’s height we would guess the average height of sons.\nAnd you can see the diff in results as well below."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "15c9880bb807cf0b1156082cd11c4bade2cc7335"
+      },
+      "cell_type": "code",
+      "source": "avg <- mean(train_set$son)\navg\n\nmean((avg - test_set$son)^2)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "a430047c7b9f52362cd5b187f929f659156ed55d"
+      },
+      "cell_type": "markdown",
+      "source": "The below code showing linear model fitting data to f(x) = b0 + b1x..... in the lm model, intercept is b0 and father is b1"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f478b860a77dcc220f138af2e72331708a50b873"
+      },
+      "cell_type": "code",
+      "source": "fit <- lm(son ~ father, data = train_set)\nfit$coef",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "78194d6750bfa09a6106e47280097df00bb2a26d"
+      },
+      "cell_type": "markdown",
+      "source": "Now you can fix the b0 and b1 to your model using code below and you can see the mean diff has now reduced."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f677ff8babbda83edc28b676d34ab4ca1ed3efc1"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- fit$coef[1] + fit$coef[2]*test_set$father\nmean((y_hat - test_set$son)^2)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "9200180813807cd5176fa05dbe4fd2877926d7fe"
+      },
+      "cell_type": "markdown",
+      "source": "**67.1 The predict function**\n\nThe predict function is very useful for machine learning applications. This function takes a fitted object from function such as lm or glm (we learn about glm soon) and a data frame with the new predictors for which to predict. So in our current example we would use predict like this:\n\nYou notice you get the same result as above"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "349c0d4bd2669830ebc02d6df52ecfdfb269ea90"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- predict(fit, test_set)\nmean((y_hat - test_set$son)^2)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "a912b0af4fdafe51eb7bf7ae6aac84b7649da5d7"
+      },
+      "cell_type": "markdown",
+      "source": "Predict does not always return objects of the same types; it depends on what type of object is sent to it. To learn about the specifics, you need to look at the help file specific for the type of fit object that is being used. The predict is a actually a special type of function in R (called a generic function) that calls other functions depending on what kind of object it receives. So if predict receives an object coming out of the lm function, it will call predict.lm. If it receives an object coming out of glm, it calls predict.glm. These two functions are similar but different. You can learn more about the differences by reading the help files: ?predict.lm  and ?predict.glm\n"
+    },
+    {
+      "metadata": {
+        "_uuid": "1732c3d9f7c3c1aad7989ef6ab84d35d1d2f64bf"
+      },
+      "cell_type": "markdown",
+      "source": "67.2 Regression for a categorical outcome\nThe regression approach can also be applied to categorical data. To illustrate this, we will apply it to our previous predicting sex example:\nIf we define the outcome  Y as 1 for females and 0 for males, and X as the height, in this case we are interested in the conditional probability:\n\nAs an example, let’s provide a prediction for a student that is 66 inches tall. What is the conditional probability of being female if you are 66 inches tall? In our dataset we can estimate this by rounding to the nearest inch and computing:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d47dbad67ea93dcf0ac6c796ac56e852fc2ff374"
+      },
+      "cell_type": "code",
+      "source": "train_set %>% \n  filter(round(height)==66) %>%\n  summarize(mean(sex==\"Female\"))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "7510324b83a6d8bbca3a2ba041cae0f22f43d0b4"
+      },
+      "cell_type": "markdown",
+      "source": "We will define  Y=1 for females and  Y=0 for males. To construct a prediction algorithm, we want to estimate the proportion of the population that is female for any given height  \nX = x, which we write as the conditional probability described above:  Pr(Y=1|X=x). Let’s see what this looks like for several values of  x (we will remove values of  x with few data points):"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "79d21e0fc5fe5a53619e91ebc45c8388646ee291"
+      },
+      "cell_type": "code",
+      "source": "heights %>% \n  mutate(x = round(height)) %>%\n  group_by(x) %>%\n  filter(n() >= 10) %>%\n  summarize(prop = mean(sex == \"Female\")) %>%\n  ggplot(aes(x, prop)) +\n  geom_point()",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "8d8704e6fe41b201496f3ef6d9a279ebc806977c"
+      },
+      "cell_type": "markdown",
+      "source": "Since the results from the plot above look close to linear, and it is the only approach we currently know, we will try regression. We assume that: p(x)=Pr(Y=1|X=x)=β0+β1x\nNote: because  p0(x)=1−p1(x), we will only estimate  p1(x) and drop the index. If we convert the factors to 0s and 1s, we can we can estimate  β0 and  β1 with least squares."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "6ec6cbad5793cf3fe644e44f812417633d291df7"
+      },
+      "cell_type": "code",
+      "source": "lm_fit <- mutate(train_set, y = as.numeric(sex == \"Female\")) %>%\n                lm(y ~ height, data = .)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "a12994036f05f9c780c134fff9e6cffa55dcc943"
+      },
+      "cell_type": "markdown",
+      "source": "Once we have estimates β0 and β1, we can obtain an actual prediction. Our estimate of the conditional probability p(x) is: p(x)=β0+β1xp(x)=β0+β1x\nTo form a prediction we define a decision rule: predict female if p(x)>0.5p(x)>0.5. We can compare our predictions to the outcomes using:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2dc75f8f9e72f72a2e8524c49615b334a845bf3a"
+      },
+      "cell_type": "code",
+      "source": "p_hat <- predict(lm_fit, test_set)\ny_hat <- ifelse(p_hat > 0.5, \"Female\", \"Male\") %>% factor()\nconfusionMatrix(y_hat, test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "80a4e5e6879d751bde7a2e268821fd5c2d03666c"
+      },
+      "cell_type": "markdown",
+      "source": "We see this method does substantially better than guessing."
+    },
+    {
+      "metadata": {
+        "_uuid": "8f828cc6bd9eaa5bfd7a74bbbd3a42109e75e438"
+      },
+      "cell_type": "markdown",
+      "source": "**Chapter 69 Logistic regression**\nThe regression approach can be extended to categorical data. In this chapter we first illustrate how, for binary data, one can simply assign numeric values of 0 and 1 to the outcomes  y, and apply regression as if the data were continuous. We will then point out a limitation with this approach and introduce logistic regression as a solution. Logistic regression is specific case of a set of generalized linear models.\n\n**69.1 Linear regression for a binary outcome**\nTo illustrate this, we will apply it to our previous predicting sex example:\n\nIf we define the outcome  Y as 1 for females and 0 for males, and  X as the height, in this case we are interested in the conditional probability:\n\nPr(Y=1∣X=x)\n \nAs an example, let’s provide a prediction for a student that is 66 inches tall. What is the conditional probability of being female if you are 66 inches tall? In our dataset, we can estimate this by rounding to the nearest inch and computing:\n\n"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f8d38d50f28e345da0d8536fdd94b454f1babbd5"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\ntrain_set %>% \n  filter(round(height)==66) %>%\n  summarize(mean(sex==\"Female\"))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "0d86b0514ee6a81cead69e94d6113b3a350cb9d8"
+      },
+      "cell_type": "code",
+      "source": "library(dslabs)\ndata(\"olive\")\ntable(olive$region)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "45b48454524e946071b99fafa8ac25aedd543e41"
+      },
+      "cell_type": "code",
+      "source": "#We remove the area column because we won’t use it as a predictor.\nolive <- select(olive, -area)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e701262e077a5feadc14dcfbd727e6c5838109c6"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\nfit <- train(region ~ .,  method = \"knn\", tuneGrid = data.frame(k = seq(1, 15, 2)), data = olive)\nggplot(fit)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "7404207c5955ed1262596941d00ec03b2632f25e"
+      },
+      "cell_type": "code",
+      "source": "library(tidyr)\nolive %>% gather(fatty_acid, percentage, -region) %>%\n  ggplot(aes(region, percentage, fill = region)) +\n  geom_boxplot() +\n  facet_wrap(~fatty_acid, scales = \"free\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "b97b38fa6fb3cd87aab6fb5ab22f61f9e021c19b"
+      },
+      "cell_type": "code",
+      "source": "p <- olive %>% \n  ggplot(aes(eicosenoic, linoleic, color = region)) + \n  geom_point()\n\n\np + geom_vline(xintercept = 0.065, lty = 2) + \n  geom_segment(x = -0.2, y = 10.535, xend = 0.065, yend = 10.535, color = \"black\", lty = 2)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "990980660a9178943833309a7a7dbaadcbc586d4"
+      },
+      "cell_type": "markdown",
+      "source": "***Chapter 70 Case study: is it a 2 or a 7?***\n\nIn the two simple examples above, we only had one predictor. We actually do not consider these machine learning challenges, which are characterized by cases with many predictors. Let’s go back to the digits example in which we had 784 predictors. For illustrative purposes, we will start by simplifying this problem to one with two predictors and two classes. Specifically, we define the challenge as building an algorithm that can determine if a digit is a 2 or 7 from the predictors. We are not quite ready to build algorithms with 784 predictors so we will extract two simple predictors from the 784: the proportion of dark pixels that are in the upper left quadrant (X1) and the lower right quadrant ( X2).\n\nWe then select a random sample of 1,000 digits, 500 in the training set and 500 in the test set and provide them here:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "118ee041018dce92b99c2b9a24adfb7a13b868ab"
+      },
+      "cell_type": "code",
+      "source": "library(dslabs)\nlibrary(dplyr)\nlibrary(ggplot2)\ndata(\"mnist_27\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "368cf4eb8c1bced1c9e6dc0159cbd62a20d778f9"
+      },
+      "cell_type": "markdown",
+      "source": "We can explore this data by plotting the two predictors and by using colors to denote the labels:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "920e3dc05f7a29ea7039c14020dc6e344ab89e7d"
+      },
+      "cell_type": "code",
+      "source": "mnist_27$train %>% ggplot(aes(x_1, x_2, color = y)) +\n  geom_point()",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "2b0d8d433a98cc832c9dcfa6f02ebff4c5f4742e"
+      },
+      "cell_type": "markdown",
+      "source": "We can immediately see some patterns. For example, if  \nX1 (the upper left panel) is very large, then the digit is probably a 7. Also, for smaller values of  \nX1, the 2s appear to be in the mid range values of  X2.\n\nThese are the images of the digits with the largest and smallest values for  X1:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "a9ee84090ce05ca1285757c264ade75c44626b8a"
+      },
+      "cell_type": "code",
+      "source": "fit <- glm(y ~ x_1 + x_2, data=mnist_27$train, family=\"binomial\")\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "a9631be30614f60f474b6ef38883626c2ad13b08"
+      },
+      "cell_type": "markdown",
+      "source": "We can now build a decision rule based on the estimate of  ^p(x1,x2):"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "a1b8fed0d7f226a51e28d9e48201a4751e5c1722"
+      },
+      "cell_type": "code",
+      "source": "p_hat <- predict(fit, newdata = mnist_27$test)\ny_hat <- factor(ifelse(p_hat > 0.5, 7, 2))\nlibrary(caret)\nconfusionMatrix(data = y_hat, reference = mnist_27$test$y)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "58b3c7dcac6f3e034660f10bb6a3badecec3666c"
+      },
+      "cell_type": "markdown",
+      "source": "We get an accuracy of 0.79! Not bad for our first try. But can we do better?\n\nBecause we constructed the mnist_27 example and we had at our disposal 60,000 digits in just the MNIST dataset, we used this to build the true conditional distribution  \np(x1,x2). Keep in mind that this is something we don’t have access to in practice, but we include it in this example because it lets us compare  \n^p(x1,x2) to the true  p(x1,x2), which teaches us the limitations of different algorithms. Let’s do that here. We can access and plot  p(x1,x2) like this:"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "fc2f060178bd165b981b684d296fe0701dc5fd1e"
+      },
+      "cell_type": "code",
+      "source": "mnist_27$true_p",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f972876114a7932a324f455c5d1bb793035e3d50"
+      },
+      "cell_type": "code",
+      "source": "mnist_27$true_p %>% ggplot(aes(x_1, x_2, fill=p)) +\n  geom_raster() ",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "b332aeaa2a6a25be53b3a8e01995a74a1d83c111"
+      },
+      "cell_type": "markdown",
+      "source": "**80.3 Regression tree**\nWhen the outcome is continuous, we call this method regression trees. We will use a continuous case, the 2008 poll data introduced earlier, to describe the basic idea of how we build these algorithms. We will try to estimate the conditional expectation  \nf(x)=E(Y|X=x) with  Y the poll margin and  x the day."
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d98f83c0e8392e4ce3b6393cb144c3a8d7bfe5d9"
+      },
+      "cell_type": "code",
+      "source": "data(\"polls_2008\")\nqplot(day, margin, data = polls_2008)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "374afa139b90a5f7cd34e86b2487be63fc906cea"
+      },
+      "cell_type": "code",
+      "source": "library(rpart)\nfit <- rpart(margin ~ ., data = polls_2008)\nfit",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "8c0417b5fe5e0a121f64674c96285f153af33c88"
+      },
+      "cell_type": "code",
+      "source": "fit",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "4e32131a122b81f4e962ce02c6972a658b8e3b85"
+      },
+      "cell_type": "code",
+      "source": "plot(fit, margin = 0.2)\ntext(fit, cex = 0.7)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "ce1485bbeaaeb4311039004b9c455034ea6f88d7"
+      },
+      "cell_type": "code",
+      "source": "polls_2008 %>% \n  mutate(y_hat = predict(fit)) %>% \n  ggplot() +\n  geom_point(aes(day, margin)) +\n  geom_step(aes(day, y_hat), col=\"red\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "366eedbd985561b59671071486d8903684c80372"
+      },
+      "cell_type": "markdown",
+      "source": "**Playing around**"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "06efc23e520f50158aa4db02f15f673e0c59fd2c"
+      },
+      "cell_type": "code",
+      "source": "head(polls_2008)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "82a409e5edcd043a3572e5774529979f0cc8ebb3"
+      },
+      "cell_type": "code",
+      "source": "data(\"polls_2008\")\nqplot(day, margin, data = polls_2008)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "6db128c914efee29b73c31ee808e767ee70f69ad"
+      },
+      "cell_type": "code",
+      "source": "mnist <- read_mnist()",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "37b6d0ffd73e977fd487b533bb8602f7836fc978"
+      },
+      "cell_type": "code",
+      "source": "a <- lm(margin~day, data = polls_2008)\na$residual",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9f2977e2a60938b153b5da60ce02ea0e6322c44a"
+      },
+      "cell_type": "code",
+      "source": "library(dslabs)\nlibrary(dplyr)\nlibrary(lubridate)\n\ndata(\"reported_heights\")\n\ndat <- mutate(reported_heights, date_time = ymd_hms(time_stamp)) %>%\n  filter(date_time >= make_date(2016, 01, 25) & date_time < make_date(2016, 02, 1)) %>%\n  mutate(type = ifelse(day(date_time) == 25 & hour(date_time) == 8 & between(minute(date_time), 15, 30), \"inclass\",\"online\")) %>%\n  select(sex, type)\n\ny <- factor(dat$sex, c(\"Female\", \"Male\"))\nx <- dat$type",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "65c7fd2fe8b3e97d520f746f3562dc6ab96bb1be"
+      },
+      "cell_type": "code",
+      "source": "dat %>% \n  group_by(type) %>%\n  summarize(prop = mean(sex == \"Female\")) ",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d3206cc9bcd2f7740e99b194594a74d08b770d66"
+      },
+      "cell_type": "code",
+      "source": "",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "ac497cbe904ce502bd262caf81cfa0963a086f76"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\ndata(iris)\niris <- iris[-which(iris$Species=='setosa'),]\ny <- iris$Species",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "c9c02cc8e7bcbe4f2bdb71de36830bf495046c08"
+      },
+      "cell_type": "code",
+      "source": "set.seed(2)\n# line of code\ntest_index <- createDataPartition(y,times=1,p=0.5,list=FALSE) \ntest <- iris[test_index,]\ntrain <- iris[-test_index,]",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "84c1bf60173ca13974b763ecf476ea34a674b23a"
+      },
+      "cell_type": "markdown",
+      "source": "Finding which feature provide the best outcome\nHow to interprete the foo function  below \n\n1. normal function with input of x\n2. work out the range and put it to rangedvalues with increment of 0.1\n3. now, apply the values from range to another function i using sapply\n4. "
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "7f2d6b083e8a95bacde2ae7f33a306e4b42682cc"
+      },
+      "cell_type": "code",
+      "source": "head(train,10)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "53c2a112a53b9edad400d5cc227fd7278f9d07d1"
+      },
+      "cell_type": "code",
+      "source": "rangedValues <- seq(range(train$Petal.Width)[1],range(train$Petal.Width)[2],by=0.1)\nrangedValues\nsummary(train$Petal.Width)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "830c37a6074907c0ce76b7f626c737e949aaa9e0"
+      },
+      "cell_type": "code",
+      "source": "length(train$Petal.Width)\nrangedValues",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "61d47f62a3a9e85746367bebcd3e0179e199fc45"
+      },
+      "cell_type": "code",
+      "source": "head(test)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "91d1503e788dd91381884a8d21bd309ad85bc0fb"
+      },
+      "cell_type": "markdown",
+      "source": "from results below you can see if picks up all rows in a column and run against the ranged, in this case the lowest is 4.9 and run against every single row. "
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "19259ef75139711156608d548efe01e501dc9e81"
+      },
+      "cell_type": "code",
+      "source": "apply(test[,c(1,2)],2,foo)\n\n#test[,c(1,2)]",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "5bc9e275bb57fd6802394ebfb4d325bb127e358b"
+      },
+      "cell_type": "code",
+      "source": "predictions\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "81a5434288220fedba6983755bbc98a4e280e29d"
+      },
+      "cell_type": "code",
+      "source": "seq(range(train$Sepal.Length)[1],range(train$Sepal.Length)[2],by=0.1)\nmin(train$Sepal.Length)\nmax(train$Sepal.Length)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "34e2f627fb6b007d573b3ca86fd3a3e2077b21c4"
+      },
+      "cell_type": "code",
+      "source": "head(train,10)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "58166eb23455352b6bb24af055e1555c1b20993c"
+      },
+      "cell_type": "code",
+      "source": "foo <- function(x){\n    rangedValues <- seq(range(x)[1],range(x)[2],by=0.1)\n    sapply(rangedValues,function(i){\n    y_hat <- ifelse(x>i,'virginica','versicolor')\n    mean(y_hat==train$Species)})\n}\npredictions <- apply(test[,-5],2,foo)\nsapply(predictions,max)\n\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "eec2c33442bc92e6e6aef8f0e5803e53787e435b"
+      },
+      "cell_type": "code",
+      "source": "b <- train[,-5]\n\n\nmyfn <- function(y){\n    range <- seq(range(y)[1],range(y)[2],by=0.1)\n    sapply(range,function(x){   \n    y_hat <- ifelse(x>y,'versicolor','virginica')\n    mean(y_hat==train$Species)\n  }) \n}\n\nforecast <- apply(b,2,myfn)\nsapply(forecast,max)\nsapply(forecast,which.max)\n\n\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "19f2ba3d7e748ae3ffaba5d577116c163d9d7d04"
+      },
+      "cell_type": "code",
+      "source": "a <- seq(range(train$Petal.Length)[1],range(train$Petal.Length)[2],by=0.1)\nb <- seq(range(train$Petal.Width)[1],range(train$Petal.Width)[2],by=0.1)\na[19]\nb[7]",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2ced99364e4592ef609e60caf70c21bd3f38c33a"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\ndata(iris)\niris <- iris[-which(iris$Species=='setosa'),]\ny <- iris$Species\n\nplot(iris,pch=21,bg=iris$Species)\n\nset.seed(2)\ntest_index <- createDataPartition(y,times=1,p=0.5,list=FALSE)\ntest <- iris[test_index,]\ntrain <- iris[-test_index,]\n\npetalLengthRange <- seq(range(train[,3])[1],range(train[,3])[2],by=0.1)\npetalWidthRange <- seq(range(train[,4])[1],range(train[,4])[2],by=0.1)\ncutoffs <- expand.grid(petalLengthRange,petalWidthRange)\n\nid <- sapply(seq(nrow(cutoffs)),function(i){\ny_hat <- ifelse(train[,3]>cutoffs[i,1] | train[,4]>cutoffs[i,2],'virginica','versicolor')\nmean(y_hat==train$Species)\n}) %>% which.max\n\noptimalCutoff <- cutoffs[id,] %>% as.numeric\ny_hat <- ifelse(test[,3]>optimalCutoff[1] & test[,4]>optimalCutoff[2],'virginica','versicolor')\nmean(y_hat==test$Species)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2b8b7d36fa502ed7ff3bf8b53f4ae45cce41c31b"
+      },
+      "cell_type": "code",
+      "source": "\n y_hat <- ifelse(train$Petal.Length < 4.8 | train$Petal.Width < 1.6, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\nconfusionMatrix(y_hat,test$Species)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "83f3f520d35bae56f1f5da02e8d657135f409a37"
+      },
+      "cell_type": "code",
+      "source": "forecast",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "230758c8dbbcb285678ef58e4a57796235c8e90c"
+      },
+      "cell_type": "code",
+      "source": "foo <- function(x){\n    rangedValues <- seq(range(x)[1],range(x)[2],by=0.1)\n    sapply(rangedValues,function(i){\n    y_hat <- ifelse(x>i,'virginica','versicolor')\n    mean(y_hat==train$Species)})\n}\npredictions <- apply(test[,-5],2,foo)\nsapply(predictions,max)\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "_uuid": "ac57f2b43981b63cb00114eb42d92e0e4d36dbcd"
+      },
+      "cell_type": "markdown",
+      "source": "**Cut off formula (Original)**"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "99ad03d66e89220df960e47b7c3dc8e83428b512"
+      },
+      "cell_type": "code",
+      "source": "cutoff <- seq(61, 70)\naccuracy <- sapply(cutoff, function(x){\n  y_hat <- ifelse(train_set$height > x, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))\n  mean(y_hat == train_set$sex)\n})\n\n\nmax(accuracy)\n\nbest_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff\n\n\ny_hat <- ifelse(test_set$height > best_cutoff, \"Male\", \"Female\") %>% factor(levels = levels(test_set$sex))\ny_hat <- factor(y_hat)\nmean(y_hat == test_set$sex)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "40870ee53b32c73946b452adb12d8665f151abe1"
+      },
+      "cell_type": "code",
+      "source": "summary(train)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "66dbf9119ca0a2bbcea5674f15277f8ef9c9cd5e"
+      },
+      "cell_type": "code",
+      "source": "cutoff <- seq(1, 2.5)\naccuracy <- sapply(cutoff, function(x){\n  y_hat <- ifelse(train$Petal.Width > x, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\n  mean(y_hat == train$Species)\n})\n\nmax(accuracy)\n\nbest_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff\n\naccuracy",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2d41b5f706db305400bf43bbec7f9b2d5bf37773"
+      },
+      "cell_type": "code",
+      "source": "cutoff <- seq(3, 6.9)\naccuracy <- sapply(cutoff, function(x){\n  y_hat <- ifelse(train$Petal.Length < x, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\n  mean(y_hat == train$Species)\n})\n\nmax(accuracy)\n\nbest_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9978532d88c5bc23733bae9baa98ea98509f9f8b"
+      },
+      "cell_type": "code",
+      "source": " y_hat <- ifelse(test$Petal.Length < 5, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\nconfusionMatrix(y_hat,test$Species)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "df91f39b244c0b88ef13c955ea7f9ede369dcc2e"
+      },
+      "cell_type": "code",
+      "source": "# combined petal length and width\ntrain$x <- train$Petal.Length + train$Petal.Width\nhead(train)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1ff0f11d0f691599c14f1f681df69b7c51493392"
+      },
+      "cell_type": "code",
+      "source": "summary(train)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f8394f6a1c74529dd39702456d3fd161a32fd3a1"
+      },
+      "cell_type": "code",
+      "source": "accuracy\nbest_cutoff",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "ca04122acfc5e17c7e0f5bde0991ad6ce215c3f0"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\nlibrary(purrr)\ncutoff <- seq(3, 6.9, by=0.1)\naccuracy <- map_dbl(cutoff, function(x){\n  y_hat <- ifelse(train$Petal.Length < x, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\n  mean(y_hat == train$Species)\n})\n\nmax(accuracy)\n\nbest_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff\n\nplot(cutoff,accuracy,type='o')\n\n y_hat <- ifelse(train$Petal.Length < best_cutoff, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\nconfusionMatrix(y_hat,test$Species)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1cb1805a909e3c4f872139311f8d179055a241f6"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\nlibrary(purrr)\ncutoff <- seq(1, 6.9)\naccuracy <- map_dbl(cutoff, function(x){\n  y_hat <- ifelse(train$Petal.Length > x | train$Petal.Width > x, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\n  mean(y_hat == train$Species)\n})\n\nmax(accuracy)\n\nbest_cutoff <- cutoff[which.max(accuracy)]\nbest_cutoff\n\n y_hat <- ifelse(train$Petal.Length < best_cutoff | train$Petal.Width < best_cutoff, \"versicolor\", \"virginica\") %>% factor(levels = levels(test$Species))\nconfusionMatrix(y_hat,test$Species)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1155a6dc2de42319df9f2f199d40c85d0aac272f"
+      },
+      "cell_type": "markdown",
+      "source": "**CONDITIONAL PROBABILITY**\n\nIn a previous module, we covered Bayes' theorem and the Bayesian paradigm. Conditional probabilities are a fundamental part of this previous covered rule.\n\nWe first review a simple example to go over conditional probabilities.\n\nAssume a patient comes into the doctor’s office to test whether they have a particular disease.\n\n* The disease is prevalent in about 2% of the community: p(disease)\n* p(healthy) : 100% - 2% = 98%\n* If you split disease down, then prob is 85% positive and 15% negative --> p( positive|disease) = 85%   &  p( negative|disease) = 15% \n* If you split healthy down, then prob is 10% positive and 90% negative --> p( positive|healthy) = 10%    &  p( negative|healthy) = 90% \n\nYou can then broken down these to numbers to make sense how the probability is calculated. \n\nE.g total is 1,000,000 population\n\n* p(healthy) = 98% * 1,000,000 = 980,000\n* p(disease) = 2% * 1,000,000 =      20,000\n\n* p(positive|healthy) = 98% * 1,000,000 * 10%   =     98,000  -->** but when they say p(positive|healthy) they don't take account the 98% just 10%. same with below ****\n* p(negative|healthy) = 98% * 1,000,000 * 90% =   882,000\n\n* p(positive|disease) =  2% * 1,000,000 * 85%    =     17,000\n* p(negative|disease) = 2% * 1,000,000 * 15%    =       3,000 \n\nso the following calculation will make sense based on the above\n* p(positive)  = (98% * 10%) + (2%*85%)\n* p(negative) = (98%*90%) + (98%*15%)\n* p(disease|positive) is these values  17,000/(17,000+98,000) = 0.147826086956522\n\nif you use textbook it is the same as p(disease)/p(positive) * p(positive|disease)\n\nBelow will explain the logic on how it gets to that \n\n17,000/(17,000+98,000) = p(positive|disease) * p(disease) /** ( p(positive|disease) * p(disease) ) + ( p(positive|healthy) * p(healthy))**\n\nAnd we know the one below in bold = p(positive)\n\nSo the final equation :\np(disease|positive) = p(positive|disease) * p(disease)/p(positive)"
+    },
+    {
+      "metadata": {
+        "_uuid": "834ef10adb67a5e6309d4d635c5c9567186e0f60"
+      },
+      "cell_type": "markdown",
+      "source": "The following 4 questions (Q2-Q5) all relate to implementing this calculation using R.\n\nWe have a hypothetical population of 1 million individuals with the following conditional probabilities as described below:\n\nThe test is positive 85% of the time when tested on a patient with the disease (high sensitivity): \nThe test is negative 90% of the time when tested on a healthy patient (high specificity): \nThe disease is prevalent in about 2% of the community: \nHere is some sample code to get you started:\n\nset.seed(1)\ndisease <- sample(c(0,1), size=1e6, replace=TRUE, prob=c(0.98,0.02))\ntest <- rep(NA, 1e6)\ntest[disease==0] <- sample(c(0,1), size=sum(disease==0), replace=TRUE, prob=c(0.90,0.10))\ntest[disease==1] <- sample(c(0,1), size=sum(disease==1), replace=TRUE, prob=c(0.15, 0.85))"
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "fea465d879dce652c1d515dd65c9ced98918d6c3"
+      },
+      "cell_type": "code",
+      "source": "P(disease|test-) = P(Disease)/P(test-) * P(test-|disease)\n\n     = 0.02*0.15/0.885",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "df0b51da3e3c6ba74848e8cbeba1edd4964cb73d"
+      },
+      "cell_type": "code",
+      "source": "p(disease)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "ac615aa8ccdcfb606454c7498b506b851f4f5b2b"
+      },
+      "cell_type": "code",
+      "source": "set.seed(1)\ndisease <- sample(c(0,1), size=1e6, replace=TRUE, prob=c(0.98,0.02))\ntest <- rep(NA, 1e6)\ntest[disease==0] <- sample(c(0,1), size=sum(disease==0), replace=TRUE, prob=c(0.90,0.10))\ntest[disease==1] <- sample(c(0,1), size=sum(disease==1), replace=TRUE, prob=c(0.15, 0.85))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "6d1c6e74aea30259174de9de7d0dd267748a181c"
+      },
+      "cell_type": "code",
+      "source": "sum(test==0)\nsum(disease==0)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e833ef39a419edbec1333b0e798099557e32751f"
+      },
+      "cell_type": "code",
+      "source": "\nmean(disease[test==0])",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "28d7e8b136cadea1174690d22124bd49e40a1158"
+      },
+      "cell_type": "code",
+      "source": "mean(disease[test==1]==1)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9ff1eceacda578f62c423c53245c180c78e3537b"
+      },
+      "cell_type": "code",
+      "source": "(sum(a==0)-sum(b==0))/sum(b==0)\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "cc15130f726187654b750f8c36cc1a250de3c3b8"
+      },
+      "cell_type": "code",
+      "source": "a <- c(1,1,0,0,1,0,0,0)\nb <- c(1,0,1,0,0,1,0,1)\nmean(b[a==0])\nmean(disease==1)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "ef1b767bf311781c66b8dbbfeee029d4c9a599ba"
+      },
+      "cell_type": "code",
+      "source": "set.seed(1)\ndisease <- sample(c(0,1), size=20, replace=TRUE, prob=c(0.98,0.02))\ntest <- rep(NA, 20)\ntest[disease==0] <- sample(c(0,1), size=sum(disease==0), replace=TRUE, prob=c(0.90,0.10))\ntest[disease==1] <- sample(c(0,1), size=sum(disease==1), replace=TRUE, prob=c(0.15, 0.85))\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "7d1367f9d8839246eb5592b15f316cd608634ee7"
+      },
+      "cell_type": "code",
+      "source": "#RR = P(disease | test+) / P(disease)\n\n0.1478261/0.019918",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "382b91d2f5b8ee718529047de6984bc8b6801e06"
+      },
+      "cell_type": "code",
+      "source": "sum(disease)/length(disease)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "378c533f8e68aa89659ca87b13fbf63ccd55cfc6"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\ntest %>% summarize(mean(disease))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "faabba8280bff7bf303a063935d4bc5c19d491b5"
+      },
+      "cell_type": "code",
+      "source": "heights$true",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2265f7f0f6daff39946af9df76218308609359e7"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\nlibrary(dslabs)\ndata(\"heights\")\nlibrary(\"ggplot2\")\n\n\nheights %>% \nmutate(height = round(height)) %>%\ngroup_by(height) %>%\nsummarize(p = mean(sex == \"Male\")) %>%\n\n\nqplot(height, p, data =.)\n\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d0c1f11ffeb42bdc427647d680ff29e48ca8eaec"
+      },
+      "cell_type": "code",
+      "source": "library(dplyr)\nlibrary(dslabs)\ndata(\"heights\")\nlibrary(\"ggplot2\")\n\n\nheights %>% \nmutate(height = round(height)) %>%\ngroup_by(height) %>%\nsummarize(p = mean(sex == \"Male\")) %>%\n\n\nqplot(height, p, data =.)\n\n\ncut(x, quantile(x, seq(0, 1, 0.1)), include.lowest = TRUE)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f9f4ea7dce708ceb32175a9f67ecc6d44a65291e"
+      },
+      "cell_type": "code",
+      "source": "\n#q1 \nlibrary(dplyr)\nlibrary(caret)\nset.seed(1)\nn <- 100\nSigma <- 9*matrix(c(1.0, 0.5, 0.5, 1.0), 2, 2)\ndat <- MASS::mvrnorm(n = 100, c(69, 69), Sigma) %>%\ndata.frame() %>% setNames(c(\"x\", \"y\"))",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f49205d28d3a281552d703b4fd86a346f939b2d0"
+      },
+      "cell_type": "code",
+      "source": "set.seed(1)\nindex <- createDataPartition(dat$y, times = 1, p = 0.5, list = FALSE)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d2a00730d9ecc0af6a8c760d935b395567094126"
+      },
+      "cell_type": "code",
+      "source": "train <- dat %>% slice(-index)\ntest <- dat %>% slice(index)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f2d10ca80d058f796cf34a25b2cf1c79111d2ab5"
+      },
+      "cell_type": "code",
+      "source": "fit <- lm(y ~ x, data = train)\nfit$coef",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9a10570a04ce08f4f0dd9c5d036bda8999087797"
+      },
+      "cell_type": "code",
+      "source": "y_hat <- predict(fit, test)\nRMSE <- sqrt(mean((y_hat - test$y)^2))\nRMSE",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f21d2bf0435cf4872170a3c2ac2e93390df39e64"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\nset.seed(1)\nb <- replicate(100,{\n    index <- createDataPartition(dat$y, times = 1, p = 0.5, list = FALSE)\n    train <- dat %>% slice(-index)\n    test <- dat %>% slice(index)\n    fit <- lm(y ~ x, data = train)\n    y_hat <- predict(fit, test)\n    RMSE <- sqrt(mean((y_hat - test$y)^2))\n    RMSE})\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "a407c1a3f60116e7576527d2a86dab759ed30b32"
+      },
+      "cell_type": "code",
+      "source": "mean(b)\nsd(b)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "fce320a0fb4115f25d72cc2a6b42823a4512847a"
+      },
+      "cell_type": "code",
+      "source": "packageVersion(\"dslabs\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1415b3192bd6117eb33b8a0216d1db4478815b1e"
+      },
+      "cell_type": "code",
+      "source": "update.packages(\"dslabs\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "3f47bfa39ee024b9b77092643c2bf4160b3352b4"
+      },
+      "cell_type": "code",
+      "source": "c <- function(n){replicate(n,{\n    index <- createDataPartition(dat$y, times = 1, p = 0.5, list = FALSE)\n    train <- dat %>% slice(-index)\n    test <- dat %>% slice(index)\n    fit <- lm(y ~ x, data = train)\n    y_hat <- predict(fit, test)\n    RMSE <- sqrt(mean((y_hat - test$y)^2))\n    RMSE})\nh <- c(mean(b),sd(b))\nh}",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "2731403e07c0829069593140540d0e6af3fa7fb8"
+      },
+      "cell_type": "code",
+      "source": "N <- c(100,200,300)\nsapply(N,c)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "02ad636b76930e98a16824d56f3178aab5c254f0"
+      },
+      "cell_type": "code",
+      "source": "x <- c(1, 5, 4, 9, 0)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "9ed2ab8a2eeb29cbd60036208de049cfc694dd35"
+      },
+      "cell_type": "code",
+      "source": "x <- c(1,2,3,4)\nsapply(x,function(x) x*2)\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "3aee810b1163ea54d82eac658e224bd6d997ec18"
+      },
+      "cell_type": "code",
+      "source": "B <- 10000\ntallest <- replicate(B, {\n  simulated_data <- rnorm(800, avg, s)\n  max(simulated_data)\n})",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "d519423e913f649897d5bdf8e381c336311b021d"
+      },
+      "cell_type": "code",
+      "source": "gg <- c(1,2,3)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "4afd032557adda345890a2b37e74348ded1df689"
+      },
+      "cell_type": "code",
+      "source": "sapply(1:3, function(x) x^2)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "42b70c60386784016d9ecdb7e34de982f62d3e5e"
+      },
+      "cell_type": "code",
+      "source": "myvector <- 1:15\na <- matrix(myvector,5,3)\nb <- matrix(myvector,5,3,byrow=TRUE)\nrowSums(a)\nrowMeans(a)\ncolSums(a)\ncolMeans(a)\na",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "e800eea15948ca820525512013f46e2c155ee0e7"
+      },
+      "cell_type": "code",
+      "source": "",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "8243466354f89991f49e7641ef0224c9f52e93ca"
+      },
+      "cell_type": "code",
+      "source": "x <- matrix(rnorm(100*10), 5, 2)\nx",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "0f3a0d4b97424b01b838a7f8ebc7d78a17a19612"
+      },
+      "cell_type": "code",
+      "source": "seq(nrow(x)) \n1:nrow(x)\nsweep(x, 2, 1:nrow(x),\"+\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1574764e439af9795dece8938eea88b8375aa304"
+      },
+      "cell_type": "code",
+      "source": "install.packages(\"pdftools\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "55de5bd16f7b0215e7779b2aab0efb37484f9020"
+      },
+      "cell_type": "code",
+      "source": "library(tidyverse)\nlibrary(purrr)\nlibrary(pdftools)\n    \nfn <- system.file(\"extdata\", \"RD-Mortality-Report_2015-18-180531.pdf\", package=\"dslabs\")\ndat <- map_df(str_split(pdf_text(fn), \"\\n\"), function(s){\ns <- str_trim(s)\nheader_index <- str_which(s, \"2015\")[1]\ntmp <- str_split(s[header_index], \"\\\\s+\", simplify = TRUE)\nmonth <- tmp[1]\nheader <- tmp[-1]\ntail_index  <- str_which(s, \"Total\")\nn <- str_count(s, \"\\\\d+\")\nout <- c(1:header_index, which(n==1), which(n>=28), tail_index:length(s))\ns[-out] %>%\nstr_remove_all(\"[^\\\\d\\\\s]\") %>%\nstr_trim() %>%\nstr_split_fixed(\"\\\\s+\", n = 6) %>%\n.[,1:5] %>%\nas_data_frame() %>% \nsetNames(c(\"day\", header)) %>%\nmutate(month = month,\nday = as.numeric(day)) %>%\ngather(year, deaths, -c(day, month)) %>%\nmutate(deaths = as.numeric(deaths))\n}) %>%\nmutate(month = recode(month, \"JAN\" = 1, \"FEB\" = 2, \"MAR\" = 3, \"APR\" = 4, \"MAY\" = 5, \"JUN\" = 6, \n                          \"JUL\" = 7, \"AGO\" = 8, \"SEP\" = 9, \"OCT\" = 10, \"NOV\" = 11, \"DEC\" = 12)) %>%\nmutate(date = make_date(year, month, day)) %>%\nfilter(date <= \"2018-05-01\")",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "3360dd24f154352ebed44567ff8574d3d40df1fd"
+      },
+      "cell_type": "code",
+      "source": "install.packages(\"pdftools\")\n",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "1cf933ccd8b1350e27b57b2c85a9cb14ed6a0690"
+      },
+      "cell_type": "code",
+      "source": "install.packages(\"dslabs\")\nsystem.file(\"extdata\", package=\"dslabs\")\npath <- system.file(\"extdata\", package=\"dslabs\")\nlist.files(path)",
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "metadata": {
+        "trusted": true,
+        "_uuid": "f8b04611f79a210280f3a9d000a572e51f720602"
+      },
+      "cell_type": "code",
+      "source": "library(caret)\nlibrary(dslabs)\nfit_glm <- glm(y ~ x_1 + x_2, data=mnist_27$train, family=\"binomial\")\np_hat_logistic <- predict(fit_glm,mnist_27$test)\ny_hat_logistic <- factor(ifelse(p_hat_logistic>0.5,7,2))\nconfusionMatrix(data = y_hat_logistic, reference=mnist_27$test$y)",
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "display_name": "R",
+      "language": "R",
+      "name": "ir"
+    },
+    "language_info": {
+      "mimetype": "text/x-r-source",
+      "name": "R",
+      "pygments_lexer": "r",
+      "version": "3.4.2",
+      "file_extension": ".r",
+      "codemirror_mode": "r"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 1
+}
